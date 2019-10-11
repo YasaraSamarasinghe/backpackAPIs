@@ -7,6 +7,7 @@ const Joi = require('@hapi/joi');
 router.use(bodyParser.urlencoded({ extended: true }));
 router.use(bodyParser.json());
 let moment = require('moment');
+const nodemailer = require('nodemailer');
 
 const User = require('./User');
 
@@ -62,6 +63,8 @@ router.get('/gps',(req,res)=>{
     });
 });
 
+
+//add new user
 router.post('/user',(req,res)=>{
 
     // Payload from the request
@@ -564,5 +567,153 @@ router.post('/userDelete',(req,res)=>{
 
 });
 
+// Get All Users
+router.get('/users', (req, res) => {
+
+    db.getDB().collection(UserCollection).find({ "deleted": false }).toArray((err, result) => {
+        if (err) {
+            res.status(404).json({
+                success: false,
+                message: "failed to find documents in DB",
+                document: null,
+                messageDetails: err
+            });
+        }
+        else {
+            if (result && result.length != 0) {
+
+                let users = result;
+                users = users.filter(res => {
+                    return !res.deleted;
+                });
+
+                res.status(200).json({
+                    success: true,
+                    message: "successfully retrieved the documents from DB",
+                    document: users,
+                    messageDetails: "no error"
+                });
+
+            } else {
+                res.status(404).json({
+                    success: false,
+                    message: "failed to find documents in DB",
+                    document: null,
+                    messageDetails: err
+                });
+            }
+        }
+    });
+});
+
+function generatePassword() {
+    var length = 6,
+        charset = "23456789",
+        retVal = "";
+    for (var i = 0, n = charset.length; i < length; ++i) {
+        retVal += charset.charAt(Math.floor(Math.random() * n));
+    }
+    return retVal;
+}
+
+function sendPasswordMail(password, email) {
+
+    let transport = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+            user: "wideshabalakaya1@gmail.com",
+            pass: "widesha123"
+        }
+    });
+
+    const message = {
+        from: 'Widesha Balakaya',
+        to: email,
+        subject: 'Welcome to Widesha balakaya App',
+        text: 'Welcome to widesha balakaya app : Your account is being created and the password is : ' + password,
+    };
+
+    transport.sendMail(message, function (err, info) {
+        if (err) {
+            console.log(err)
+        } else {
+            console.log(info);
+        }
+    });
+}
+
+router.post('/login', (req, res) => {
+
+    console.log("login called..");
+    // Payload from the request
+    let data = req.body;
+
+    if (!data || !data.user || !data.user.email) {
+        return res.status(400).send({ error: true, errorMessage: "not enough data" });
+    }
+
+    db.getDB().collection(UserCollection).find({ "email": data.user.email }).toArray((err, result) => {
+        if (err) {
+            return res.status(404).json({
+                success: false,
+                message: "failed to find user in the system",
+                document: null,
+                messageDetails: err
+            });
+        }
+        else {
+            if (result && result[0]) {
+
+                if (result[0].password == data.user.password) {
+
+
+                    console.log("passwords mathch..");
+                    let loginAttempt = new LoginAttempt();
+                    loginAttempt.uid = result[0]._id;
+                    loginAttempt.email = result[0].email;
+                    loginAttempt.timestamp = moment().utc();
+
+                    let userObject = result[0];
+
+                    // Inserting into DB
+                    db.getDB().collection(loginAttemptsCollection).insertOne(loginAttempt, (err, result) => {
+                        if (err) {
+                            return res.status(500).json({
+                                success: false,
+                                message: "failed to login, Please contact system admin",
+                                document: null,
+                                messageDetails: err
+                            });
+                        }
+                        else {
+                            return res.status(201).json({
+                                success: true,
+                                message: "successfully inserted user login attempt to DB",
+                                document: { loginAttempt: result.ops[0], userObject: userObject },
+                                messageDetails: "no error"
+                            });
+                        }
+                    });
+
+                } else {
+                    return res.status(200).json({
+                        success: false,
+                        message: "Invalid username password.",
+                        document: null,
+                        messageDetails: "login error"
+                    });
+                }
+            } else {
+                return res.status(200).json({
+                    success: false,
+                    message: "Invalid username password.",
+                    document: null,
+                    messageDetails: err
+                });
+            }
+        }
+
+    });
+});
 
 module.exports = router;
